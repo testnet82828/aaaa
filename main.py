@@ -193,15 +193,18 @@ def load_class_indices(class_file_path):
     with open(class_file_path, 'r') as f:
         return json.load(f)
 
-working_dir = os.path.dirname(os.path.abspath(__file__))
-try:
-    model_path = download_model()
-    class_file_path = f"{working_dir}/class_indices.json"
-    disease_model = load_model(model_path)
-    class_indices = load_class_indices(class_file_path)
-except Exception as e:
-    st.error(f"Error loading model or class indices: {e}")
-    st.stop()
+def load_model_and_indices():
+    if "disease_model" not in st.session_state or "class_indices" not in st.session_state:
+        with st.spinner("Loading model..."):
+            working_dir = os.path.dirname(os.path.abspath(__file__))
+            try:
+                model_path = download_model()
+                class_file_path = f"{working_dir}/class_indices.json"
+                st.session_state["disease_model"] = load_model(model_path)
+                st.session_state["class_indices"] = load_class_indices(class_file_path)
+            except Exception as e:
+                st.error(f"Error loading model or class indices: {e}")
+                st.stop()
 
 # ------------------------- IMAGE PROCESSING -------------------------
 @st.cache_data
@@ -402,6 +405,9 @@ def main_page():
         if "user" in st.session_state and st.session_state["user"] != "guest":
             auth_user = supabase.auth.get_user()
 
+        # Load model and class indices only when needed
+        load_model_and_indices()
+
         uploaded_image = st.file_uploader("Upload an image...", type=["jpg", "jpeg", "png"])
 
         if uploaded_image is not None:
@@ -423,7 +429,7 @@ def main_page():
             with col2:
                 if st.button('Classify'):
                     with st.spinner('Classifying...'):
-                        prediction = predict_image_class(disease_model, uploaded_image, class_indices)
+                        prediction = predict_image_class(st.session_state["disease_model"], uploaded_image, st.session_state["class_indices"])
                         st.markdown(f"<p style='color: blue; background-color: white; padding: 10px; border-radius: 5px;'>Prediction: {prediction}</p>", unsafe_allow_html=True)
 
                         if st.session_state["user"] != "guest":

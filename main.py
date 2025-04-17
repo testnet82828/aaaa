@@ -379,8 +379,11 @@ def main_page():
             height: 100vh;
         }}
         .sidebar .sidebar-content {{
-            background-color: rgba(0, 0, 0, 0.7);
+            background-color: #000000;
             color: white;
+        }}
+        .disease-details p {{
+            color: white !important;
         }}
         </style>
         """,
@@ -438,11 +441,13 @@ def main_page():
                             disease_info = get_disease_info(prediction)
                             if disease_info:
                                 st.subheader("📌 Disease Details")
-                                st.write(f"**🦠 Disease:** {disease_info['Disease Name']}")
-                                st.write(f"**📚 Description:** {disease_info['Description']}")
-                                st.write(f"**📚 Symptoms:** {disease_info['Symptoms']}")
-                                st.write(f"**💊 Treatment:** {disease_info['Treatment']}")
-                                st.write(f"**🌿 Recommended Fertiliser:** {disease_info['Fertiliser']}")
+                                st.markdown(f"**🦠 Disease:** {disease_info['Disease Name']}", unsafe_allow_html=True)
+                                st.markdown(f"**📚 Description:** {disease_info['Description']}", unsafe_allow_html=True)
+                                st.markdown("<div class='disease-details'>", unsafe_allow_html=True)
+                                st.markdown(f"<p>**📚 Symptoms:** {disease_info['Symptoms']}</p>", unsafe_allow_html=True)
+                                st.markdown(f"<p>**💊 Treatment:** {disease_info['Treatment']}</p>", unsafe_allow_html=True)
+                                st.markdown(f"<p>**🌿 Recommended Fertiliser:** {disease_info['Fertiliser']}</p>", unsafe_allow_html=True)
+                                st.markdown("</div>", unsafe_allow_html=True)
                             else:
                                 st.warning("⚠️ No additional information found in the database.")
 

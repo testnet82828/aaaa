@@ -34,223 +34,8 @@ def get_image_base64(image_path):
         with open(image_path, "rb") as img_file:
             return base64.b64encode(img_file.read()).decode('utf-8')
     except FileNotFoundError:
+        st.error(f"Error: Background image '{image_path}' not found. Please check the file path.")
         return ""
-
-# ------------------------- MODEL CONFIGURATION -------------------------
-st.set_page_config(page_title="Plant Disease Classifier", page_icon="🌿")
-
-@st.cache_resource
-def download_model():
-    model_path = "trained_model/plant_disease_prediction_model.h5"
-    
-    if os.path.exists(model_path):
-        file_size = os.path.getsize(model_path)
-        if file_size < 100000:  # Check for files smaller than 100 KB
-            os.remove(model_path)
-        else:
-            try:
-                with h5py.File(model_path, 'r') as f:
-                    pass
-                return model_path
-            except Exception:
-                os.remove(model_path)
-    
-    os.makedirs("trained_model", exist_ok=True)
-    url = "https://drive.google.com/uc?id=1lUuIzhcCdZEDmqfSFJcdw44na2qdeQyR"
-    try:
-        gdown.download(url, model_path, quiet=True)
-        if os.path.exists(model_path):
-            file_size = os.path.getsize(model_path)
-            try:
-                with h5py.File(model_path, 'r') as f:
-                    pass
-                return model_path
-            except Exception:
-                os.remove(model_path)
-                return None
-        return None
-    except Exception:
-        return None
-
-@st.cache_resource
-def load_model(model_path):
-    if not os.path.exists(model_path):
-        return None
-    
-    file_size = os.path.getsize(model_path)
-    if file_size < 100000:
-        return None
-    
-    try:
-        with h5py.File(model_path, 'r') as f:
-            pass
-    except Exception:
-        return None
-    
-    try:
-        model = tf.keras.models.load_model(model_path)
-        return model
-    except Exception:
-        return None
-
-@st.cache_resource
-def load_class_indices(class_file_path):
-    if not os.path.exists(class_file_path):
-        return None
-    try:
-        with open(class_file_path, 'r') as f:
-            return json.load(f)
-    except Exception:
-        return None
-
-def load_model_and_indices():
-    if "model_loaded" not in st.session_state:
-        working_dir = os.path.dirname(os.path.abspath(__file__))
-        model_path = download_model()
-        if not model_path:
-            st.session_state["model_loaded"] = False
-            return False
-        class_file_path = f"{working_dir}/class_indices.json"
-        model = load_model(model_path)
-        class_indices = load_class_indices(class_file_path)
-        if model is None or class_indices is None:
-            st.session_state["model_loaded"] = False
-            return False
-        st.session_state["disease_model"] = model
-        st.session_state["class_indices"] = class_indices
-        st.session_state["model_loaded"] = True
-        return True
-    return st.session_state["model_loaded"]
-
-# Preload model at app startup
-load_model_and_indices()
-
-# ------------------------- IMAGE PROCESSING -------------------------
-@st.cache_data
-def load_and_preprocess_image(image, target_size=(224, 224)):
-    img = Image.open(image).resize(target_size)
-    img_array = np.array(img).astype('float32') / 255.0
-    img_array = np.expand_dims(img_array, axis=0)
-    return img_array
-
-def predict_image_class(model, image, class_indices):
-    preprocessed_img = load_and_preprocess_image(image)
-    predictions = model.predict(preprocessed_img)
-    predicted_class_index = np.argmax(predictions, axis=1)[0]
-    return class_indices.get(str(predicted_class_index), "Unknown")
-
-# ------------------------- HISTORY FUNCTIONS -------------------------
-def save_to_history(user_id, image_data, prediction):
-    if user_id:
-        file_name = f"{user_id}/{datetime.now().isoformat()}.png"
-        insert_data = {
-            "user_id": user_id,
-            "image_path": file_name,
-            "prediction": prediction,
-            "timestamp": datetime.now().isoformat()
-        }
-        try:
-            auth_user = supabase.auth.get_user()
-            if not auth_user or auth_user.user.id != user_id:
-                return
-            if "access_token" in st.session_state and "refresh_token" in st.session_state:
-                supabase.auth.set_session(st.session_state["access_token"], st.session_state["refresh_token"])
-            supabase.storage.from_("plant-images").upload(
-                file_name,
-                image_data.getvalue(),
-                file_options={"content-type": "image/png"}
-            )
-            supabase.table("classification_history").insert(insert_data).execute()
-            st.success("History saved successfully")
-        except Exception as e:
-            if "refresh_token" in st.session_state and ("403" in str(e) or "42501" in str(e)):
-                try:
-                    new_session = supabase.auth.refresh_session(st.session_state["refresh_token"])
-                    st.session_state["access_token"] = new_session.session.access_token
-                    st.session_state["refresh_token"] = new_session.session.refresh_token
-                    supabase.auth.set_session(new_session.session.access_token, new_session.session.refresh_token)
-                    auth_user = supabase.auth.get_user()
-                    if auth_user.user.id != user_id:
-                        return
-                    supabase.table("classification_history").insert(insert_data).execute()
-                    st.success("History saved after token refresh")
-                except Exception:
-                    pass
-            else:
-                pass
-
-def get_user_history(user_id):
-    if user_id:
-        try:
-            if "access_token" in st.session_state and "refresh_token" in st.session_state:
-                supabase.auth.set_session(st.session_state["access_token"], st.session_state["refresh_token"])
-            response = supabase.table("classification_history")\
-                .select("*")\
-                .eq("user_id", user_id)\
-                .order("timestamp", desc=True)\
-                .execute()
-            history = response.data
-            for item in history:
-                image_url = supabase.storage.from_("plant-images").get_public_url(item["image_path"])
-                item["image_url"] = image_url
-            return history
-        except Exception:
-            return []
-    return []
-
-# ------------------------- FETCH DATA FROM SUPABASE -------------------------
-def get_disease_info(disease_name):
-    try:
-        if "access_token" in st.session_state and "refresh_token" in st.session_state:
-            supabase.auth.set_session(st.session_state["access_token"], st.session_state["refresh_token"])
-        
-        response = supabase.table("disease")\
-            .select(
-                "disease_name, description, "
-                "symptoms(symptom_description), "
-                "treatment_suggestions(treatment_description), "
-                "fertiliser(fertiliser_name, type)"
-            )\
-            .eq("disease_name", disease_name)\
-            .execute()
-
-        if response.data:
-            disease_info = response.data[0]
-            return {
-                "Disease Name": disease_info["disease_name"],
-                "Description": disease_info["description"],
-                "Symptoms": ", ".join(
-                    [s["symptom_description"] for s in disease_info.get("symptoms", [])]
-                ) if disease_info.get("symptoms") else "No symptoms listed",
-                "Treatment": (
-                    disease_info["treatment_suggestions"][0]["treatment_description"]
-                    if disease_info.get("treatment_suggestions") else "No specific treatment available"
-                ),
-                "Fertiliser": (
-                    f"{disease_info['fertiliser'][0]['fertiliser_name']} ({disease_info['fertiliser'][0]['type']})"
-                    if disease_info.get("fertiliser") else "No recommended fertiliser"
-                )
-            }
-        return None
-    except Exception:
-        return None
-
-# ------------------------- CHATBOT FUNCTION WITH GOOGLE API -------------------------
-def agriculture_chatbot(user_input):
-    try:
-        prompt = f"As an agricultural expert, answer this: {user_input}"
-        response = chatbot_model.generate_content(prompt)
-        return response.text
-    except Exception:
-        return "Sorry, I couldn’t process your request. Please try again!"
-
-# ------------------------- LOGOUT FUNCTION -------------------------
-def logout():
-    supabase.auth.sign_out()
-    for key in list(st.session_state.keys()):
-        del st.session_state[key]
-    st.success("Logged out successfully!")
-    st.experimental_rerun()
 
 # ------------------------- AUTHENTICATION -------------------------
 def login_page():
@@ -308,6 +93,7 @@ def login_page():
                 session = supabase.auth.sign_in_with_password({"email": email, "password": password})
                 uuid = session.user.id
 
+                # Combine into a single dictionary
                 supabase.table("profiles").insert({
                     "email": email,
                     "uuid": uuid,
@@ -331,6 +117,232 @@ def login_page():
             except Exception as e:
                 st.error(f"Error: {e}")
 
+# ------------------------- MODEL CONFIGURATION -------------------------
+st.set_page_config(page_title="Plant Disease Classifier", page_icon="🌿")
+
+@st.cache_resource
+def download_model():
+    model_path = "trained_model/plant_disease_prediction_model.h5"
+    
+    # Check if the model file exists and is valid
+    if os.path.exists(model_path):
+        file_size = os.path.getsize(model_path)
+        if file_size < 100000:  # Check for files smaller than 100 KB (e.g., Git LFS pointers)
+            os.remove(model_path)
+        else:
+            try:
+                with h5py.File(model_path, 'r') as f:
+                    pass
+                return model_path
+            except Exception as e:
+                os.remove(model_path)
+    
+    # Download from Google Drive
+    os.makedirs("trained_model", exist_ok=True)
+    url = "https://drive.google.com/uc?id=1lUuIzhcCdZEDmqfSFJcdw44na2qdeQyR"
+    try:
+        gdown.download(url, model_path, quiet=False)
+    except Exception as e:
+        st.error(f"Failed to download model from Google Drive: {e}")
+        raise
+    
+    # Verify the downloaded file
+    if os.path.exists(model_path):
+        file_size = os.path.getsize(model_path)
+        try:
+            with h5py.File(model_path, 'r') as f:
+                pass
+            return model_path
+        except Exception as e:
+            st.error(f"Downloaded file is invalid: {e}")
+            raise ValueError(f"Downloaded file is invalid: {e}")
+    else:
+        st.error("Model file not found after download.")
+        raise FileNotFoundError("Model file not found")
+
+@st.cache_resource
+def load_model(model_path):
+    if not os.path.exists(model_path):
+        st.error(f"Model file not found at: {model_path}")
+        raise FileNotFoundError(f"Model file not found at: {model_path}")
+    
+    file_size = os.path.getsize(model_path)
+    if file_size < 100000:  # Check for files smaller than 100 KB
+        st.error("File is likely a Git LFS pointer, not the actual model.")
+        raise ValueError("Invalid model file: Likely a Git LFS pointer.")
+    
+    try:
+        with h5py.File(model_path, 'r') as f:
+            pass
+    except Exception as e:
+        st.error(f"Invalid HDF5 file: {e}")
+        raise ValueError(f"Invalid HDF5 file: {e}")
+    
+    try:
+        model = tf.keras.models.load_model(model_path)
+        return model
+    except Exception as e:
+        st.error(f"Failed to load model: {e}")
+        raise RuntimeError(f"Failed to load model: {e}")
+
+@st.cache_resource
+def load_class_indices(class_file_path):
+    if not os.path.exists(class_file_path):
+        st.error(f"Class indices file not found at: {class_file_path}")
+        raise FileNotFoundError(f"Class indices file not found at: {class_file_path}")
+    with open(class_file_path, 'r') as f:
+        return json.load(f)
+
+def load_model_and_indices():
+    if "disease_model" not in st.session_state or "class_indices" not in st.session_state:
+        working_dir = os.path.dirname(os.path.abspath(__file__))
+        try:
+            model_path = download_model()
+            class_file_path = f"{working_dir}/class_indices.json"
+            st.session_state["disease_model"] = load_model(model_path)
+            st.session_state["class_indices"] = load_class_indices(class_file_path)
+        except Exception as e:
+            st.error(f"Error loading model or class indices: {e}")
+            st.stop()
+
+# ------------------------- IMAGE PROCESSING -------------------------
+@st.cache_data
+def load_and_preprocess_image(image, target_size=(224, 224)):
+    img = Image.open(image).resize(target_size)
+    img_array = np.array(img).astype('float32') / 255.0
+    img_array = np.expand_dims(img_array, axis=0)
+    return img_array
+
+def predict_image_class(model, image, class_indices):
+    preprocessed_img = load_and_preprocess_image(image)
+    predictions = model.predict(preprocessed_img)
+    predicted_class_index = np.argmax(predictions, axis=1)[0]
+    return class_indices.get(str(predicted_class_index), "Unknown")
+
+# ------------------------- HISTORY FUNCTIONS -------------------------
+def save_to_history(user_id, image_data, prediction):
+    if user_id:
+        file_name = f"{user_id}/{datetime.now().isoformat()}.png"
+        insert_data = {
+            "user_id": user_id,
+            "image_path": file_name,
+            "prediction": prediction,
+            "timestamp": datetime.now().isoformat()
+        }
+        try:
+            auth_user = supabase.auth.get_user()
+            if not auth_user:
+                st.error("No authenticated user. Session may have expired.")
+                return
+            if auth_user.user.id != user_id:
+                st.error(f"User ID mismatch: Authenticated ID ({auth_user.user.id}) != Insert ID ({user_id})")
+                return
+
+            if "access_token" in st.session_state and "refresh_token" in st.session_state:
+                supabase.auth.set_session(st.session_state["access_token"], st.session_state["refresh_token"])
+
+            supabase.storage.from_("plant-images").upload(
+                file_name,
+                image_data.getvalue(),
+                file_options={"content-type": "image/png"}
+            )
+            supabase.table("classification_history").insert(insert_data).execute()
+            st.success("History saved successfully")
+        except Exception as e:
+            if "refresh_token" in st.session_state and ("403" in str(e) or "42501" in str(e)):
+                try:
+                    new_session = supabase.auth.refresh_session(st.session_state["refresh_token"])
+                    st.session_state["access_token"] = new_session.session.access_token
+                    st.session_state["refresh_token"] = new_session.session.refresh_token
+                    supabase.auth.set_session(new_session.session.access_token, new_session.session.refresh_token)
+                    auth_user = supabase.auth.get_user()
+                    if auth_user.user.id != user_id:
+                        st.error(f"Post-refresh user ID mismatch: Authenticated ID ({auth_user.user.id}) != Insert ID ({user_id})")
+                        return
+                    supabase.table("classification_history").insert(insert_data).execute()
+                    st.success("History saved after token refresh")
+                except Exception as refresh_error:
+                    st.error(f"Token refresh failed: {refresh_error}. Please log in again.")
+            else:
+                st.error(f"Error saving to history: {e}")
+
+def get_user_history(user_id):
+    if user_id:
+        try:
+            if "access_token" in st.session_state and "refresh_token" in st.session_state:
+                supabase.auth.set_session(st.session_state["access_token"], st.session_state["refresh_token"])
+            response = supabase.table("classification_history")\
+                .select("*")\
+                .eq("user_id", user_id)\
+                .order("timestamp", desc=True)\
+                .execute()
+            history = response.data
+            for item in history:
+                image_url = supabase.storage.from_("plant-images").get_public_url(item["image_path"])
+                item["image_url"] = image_url
+            return history
+        except Exception as e:
+            st.error(f"Error fetching history: {e}")
+            return []
+    return []
+
+# ------------------------- FETCH DATA FROM SUPABASE -------------------------
+def get_disease_info(disease_name):
+    try:
+        if "access_token" in st.session_state and "refresh_token" in st.session_state:
+            supabase.auth.set_session(st.session_state["access_token"], st.session_state["refresh_token"])
+        
+        response = supabase.table("disease")\
+            .select(
+                "disease_name, description, "
+                "symptoms(symptom_description), "
+                "treatment_suggestions(treatment_description), "
+                "fertiliser(fertiliser_name, type)"
+            )\
+            .eq("disease_name", disease_name)\
+            .execute()
+
+        if response.data:
+            disease_info = response.data[0]
+            return {
+                "Disease Name": disease_info["disease_name"],
+                "Description": disease_info["description"],
+                "Symptoms": ", ".join(
+                    [s["symptom_description"] for s in disease_info.get("symptoms", [])]
+                ) if disease_info.get("symptoms") else "No symptoms listed",
+                "Treatment": (
+                    disease_info["treatment_suggestions"][0]["treatment_description"]
+                    if disease_info.get("treatment_suggestions") else "No specific treatment available"
+                ),
+                "Fertiliser": (
+                    f"{disease_info['fertiliser'][0]['fertiliser_name']} ({disease_info['fertiliser'][0]['type']})"
+                    if disease_info.get("fertiliser") else "No recommended fertiliser"
+                )
+            }
+        else:
+            return None
+    except Exception as e:
+        st.error(f"Database fetch error: {e}")
+        return None
+
+# ------------------------- CHATBOT FUNCTION WITH GOOGLE API -------------------------
+def agriculture_chatbot(user_input):
+    try:
+        prompt = f"As an agricultural expert, answer this: {user_input}"
+        response = chatbot_model.generate_content(prompt)
+        return response.text
+    except Exception as e:
+        st.error(f"Chatbot error: {e}")
+        return "Sorry, I couldn’t process your request. Please try again!"
+
+# ------------------------- LOGOUT FUNCTION -------------------------
+def logout():
+    supabase.auth.sign_out()
+    for key in list(st.session_state.keys()):
+        del st.session_state[key]
+    st.success("Logged out successfully!")
+    st.experimental_rerun()
+
 # ------------------------- MAIN PAGE -------------------------
 def main_page():
     global supabase
@@ -344,13 +356,15 @@ def main_page():
             if not current_session:
                 supabase.auth.set_session(st.session_state["access_token"], st.session_state["refresh_token"])
         except Exception as e:
+            st.error(f"Error setting session: {e}")
             if "refresh_token" in st.session_state:
                 try:
                     new_session = supabase.auth.refresh_session(st.session_state["refresh_token"])
                     st.session_state["access_token"] = new_session.session.access_token
                     st.session_state["refresh_token"] = new_session.session.refresh_token
                     supabase.auth.set_session(new_session.session.access_token, new_session.session.refresh_token)
-                except Exception:
+                except Exception as refresh_error:
+                    st.error(f"Token refresh failed: {refresh_error}. Please log in again.")
                     logout()
 
     image_path = os.path.join(os.path.dirname(__file__), "images", "background_image.jpg")
@@ -410,9 +424,9 @@ def main_page():
 
             with col2:
                 if st.button('Classify'):
-                    if "model_loaded" not in st.session_state or not st.session_state["model_loaded"]:
-                        st.warning("Unable to classify image. Please try again.")
-                    else:
+                    with st.spinner('Loading model and classifying...'):
+                        # Load model and class indices only when classifying
+                        load_model_and_indices()
                         prediction = predict_image_class(st.session_state["disease_model"], uploaded_image, st.session_state["class_indices"])
                         st.markdown(f"<p style='color: blue; background-color: white; padding: 10px; border-radius: 5px;'>Prediction: {prediction}</p>", unsafe_allow_html=True)
 
@@ -421,7 +435,10 @@ def main_page():
                             if auth_user:
                                 user_id = auth_user.user.id
                                 save_to_history(user_id, uploaded_image, prediction)
+                            else:
+                                st.error("Not authenticated. Please log in again.")
 
+                        # Handle Healthy prediction separately
                         if prediction.lower() == "healthy":
                             st.markdown("<p style='color: green; background-color: white; padding: 10px; border-radius: 5px;'>This plant appears to be healthy!</p>", unsafe_allow_html=True)
                         else:
@@ -457,6 +474,8 @@ def main_page():
                             st.write(f"**Prediction:** {item['prediction']}")
                             st.write(f"**Date:** {item['timestamp']}")
                         st.markdown("---")
+            else:
+                st.error("Not authenticated. Please log in again.")
 
     elif menu == "Chatbot":
         st.markdown("<h1 style='color: white;'>Agriculture Chatbot</h1>", unsafe_allow_html=True)
@@ -498,3 +517,4 @@ def main_page():
 # ------------------------- RUN APP -------------------------
 if __name__ == "__main__":
     main_page()
+    

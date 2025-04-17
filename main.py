@@ -367,9 +367,6 @@ def main_page():
                     st.error(f"Token refresh failed: {refresh_error}. Please log in again.")
                     logout()
 
-    # Preload model after login
-    load_model_and_indices()
-
     image_path = os.path.join(os.path.dirname(__file__), "images", "background_image.jpg")
     with open(image_path, "rb") as img_file:
         background_image_base64 = base64.b64encode(img_file.read()).decode()
@@ -427,34 +424,36 @@ def main_page():
 
             with col2:
                 if st.button('Classify'):
-                    # Model is already loaded, no spinner needed
-                    prediction = predict_image_class(st.session_state["disease_model"], uploaded_image, st.session_state["class_indices"])
-                    st.markdown(f"<p style='color: blue; background-color: white; padding: 10px; border-radius: 5px;'>Prediction: {prediction}</p>", unsafe_allow_html=True)
+                    with st.spinner('Loading model and classifying...'):
+                        # Load model and class indices only when classifying
+                        load_model_and_indices()
+                        prediction = predict_image_class(st.session_state["disease_model"], uploaded_image, st.session_state["class_indices"])
+                        st.markdown(f"<p style='color: blue; background-color: white; padding: 10px; border-radius: 5px;'>Prediction: {prediction}</p>", unsafe_allow_html=True)
 
-                    if st.session_state["user"] != "guest":
-                        auth_user = supabase.auth.get_user()
-                        if auth_user:
-                            user_id = auth_user.user.id
-                            save_to_history(user_id, uploaded_image, prediction)
-                        else:
-                            st.error("Not authenticated. Please log in again.")
+                        if st.session_state["user"] != "guest":
+                            auth_user = supabase.auth.get_user()
+                            if auth_user:
+                                user_id = auth_user.user.id
+                                save_to_history(user_id, uploaded_image, prediction)
+                            else:
+                                st.error("Not authenticated. Please log in again.")
 
-                    # Handle Healthy prediction separately
-                    if prediction.lower() == "healthy":
-                        st.markdown("<p style='color: green; background-color: white; padding: 10px; border-radius: 5px;'>This plant appears to be healthy!</p>", unsafe_allow_html=True)
-                    else:
-                        disease_info = get_disease_info(prediction)
-                        if disease_info:
-                            st.subheader("📌 Disease Details")
-                            st.markdown(f"**🦠 Disease:** {disease_info['Disease Name']}", unsafe_allow_html=True)
-                            st.markdown(f"**📚 Description:** {disease_info['Description']}", unsafe_allow_html=True)
-                            st.markdown("<div class='disease-details'>", unsafe_allow_html=True)
-                            st.markdown(f"<p>**📚 Symptoms:** {disease_info['Symptoms']}</p>", unsafe_allow_html=True)
-                            st.markdown(f"<p>**💊 Treatment:** {disease_info['Treatment']}</p>", unsafe_allow_html=True)
-                            st.markdown(f"<p>**🌿 Recommended Fertiliser:** {disease_info['Fertiliser']}</p>", unsafe_allow_html=True)
-                            st.markdown("</div>", unsafe_allow_html=True)
+                        # Handle Healthy prediction separately
+                        if prediction.lower() == "healthy":
+                            st.markdown("<p style='color: green; background-color: white; padding: 10px; border-radius: 5px;'>This plant appears to be healthy!</p>", unsafe_allow_html=True)
                         else:
-                            st.warning("⚠️ No additional information found in the database.")
+                            disease_info = get_disease_info(prediction)
+                            if disease_info:
+                                st.subheader("📌 Disease Details")
+                                st.markdown(f"**🦠 Disease:** {disease_info['Disease Name']}", unsafe_allow_html=True)
+                                st.markdown(f"**📚 Description:** {disease_info['Description']}", unsafe_allow_html=True)
+                                st.markdown("<div class='disease-details'>", unsafe_allow_html=True)
+                                st.markdown(f"<p>**📚 Symptoms:** {disease_info['Symptoms']}</p>", unsafe_allow_html=True)
+                                st.markdown(f"<p>**💊 Treatment:** {disease_info['Treatment']}</p>", unsafe_allow_html=True)
+                                st.markdown(f"<p>**🌿 Recommended Fertiliser:** {disease_info['Fertiliser']}</p>", unsafe_allow_html=True)
+                                st.markdown("</div>", unsafe_allow_html=True)
+                            else:
+                                st.warning("⚠️ No additional information found in the database.")
 
     elif menu == "History":
         if st.session_state["user"] == "guest":

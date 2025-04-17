@@ -5,11 +5,11 @@ import numpy as np
 import tensorflow as tf
 import streamlit as st
 import io
-import zipfile
 from PIL import Image
 from supabase import create_client, Client
 from datetime import datetime
 import google.generativeai as genai
+import gdown
 import h5py
 
 # Clear cache to avoid stale model files
@@ -123,14 +123,13 @@ st.set_page_config(page_title="Plant Disease Classifier", page_icon="🌿")
 @st.cache_resource
 def download_model():
     model_path = "trained_model/plant_disease_prediction_model.h5"
-    zip_path = "trained_model/model.zip"
     
     # Check if the model file exists and is valid
     if os.path.exists(model_path):
         file_size = os.path.getsize(model_path)
         st.write(f"Existing file size: {file_size} bytes")
         if file_size < 100000:  # Check for files smaller than 100 KB (e.g., Git LFS pointers)
-            st.write("Existing file is too small, likely a Git LFS pointer. Removing...")
+            st.write("Existing file is too small, likely a Git LFS pointer. Redownloading...")
             os.remove(model_path)
         else:
             try:
@@ -141,52 +140,35 @@ def download_model():
                 st.write(f"File size: {file_size} bytes")
                 return model_path
             except Exception as e:
-                st.write(f"Invalid HDF5 file: {e}. Removing...")
+                st.write(f"Invalid HDF5 file: {e}. Redownloading...")
                 os.remove(model_path)
     
-    # Check for a zipped model file
+    # Download from Google Drive
     os.makedirs("trained_model", exist_ok=True)
-    if os.path.exists(zip_path):
-        st.write(f"Extracting model from {zip_path}")
-        with zipfile.ZipFile(zip_path, 'r') as zip_ref:
-            zip_ref.extractall("trained_model")
-        if os.path.exists(model_path):
-            file_size = os.path.getsize(model_path)
-            try:
-                with h5py.File(model_path, 'r') as f:
-                    st.write("Valid HDF5 file")
-                st.write(f"Model path: {model_path}")
-                st.write(f"File exists: {os.path.exists(model_path)}")
-                st.write(f"File size: {file_size} bytes")
-                return model_path
-            except Exception as e:
-                st.error(f"Extracted file is invalid: {e}")
-                raise ValueError(f"Extracted file is invalid: {e}")
+    url = "https://drive.google.com/uc?id=1lUuIzhcCdZEDmqfSFJcdw44na2qdeQyR"
+    st.write(f"Downloading model from Google Drive to: {model_path}")
+    try:
+        gdown.download(url, model_path, quiet=False)
+    except Exception as e:
+        st.error(f"Failed to download model from Google Drive: {e}")
+        raise
     
-    # Optional: Add Google Drive download as a fallback (uncomment if needed)
-    # url = "https://drive.google.com/uc?id=1lUuIzhcCdZEDmqfSFJcdw44na2qdeQyR"
-    # st.write(f"Downloading model from Google Drive to: {model_path}")
-    # try:
-    #     import gdown
-    #     gdown.download(url, model_path, quiet=False)
-    # except Exception as e:
-    #     st.error(f"Failed to download model from Google Drive: {e}")
-    #     raise
-    # if os.path.exists(model_path):
-    #     file_size = os.path.getsize(model_path)
-    #     st.write(f"Model path: {model_path}")
-    #     st.write(f"File exists: {os.path.exists(model_path)}")
-    #     st.write(f"File size: {file_size} bytes")
-    #     try:
-    #         with h5py.File(model_path, 'r') as f:
-    #             st.write("Valid HDF5 file")
-    #         return model_path
-    #     except Exception as e:
-    #         st.error(f"Downloaded file is invalid: {e}")
-    #         raise ValueError(f"Downloaded file is invalid: {e}")
-    
-    st.error("Model file not found and no zip file available.")
-    raise FileNotFoundError("Model file not found")
+    # Verify the downloaded file
+    if os.path.exists(model_path):
+        file_size = os.path.getsize(model_path)
+        st.write(f"Model path: {model_path}")
+        st.write(f"File exists: {os.path.exists(model_path)}")
+        st.write(f"File size: {file_size} bytes")
+        try:
+            with h5py.File(model_path, 'r') as f:
+                st.write("Valid HDF5 file")
+            return model_path
+        except Exception as e:
+            st.error(f"Downloaded file is invalid: {e}")
+            raise ValueError(f"Downloaded file is invalid: {e}")
+    else:
+        st.error("Model file not found after download.")
+        raise FileNotFoundError("Model file not found")
 
 @st.cache_resource
 def load_model(model_path):
@@ -368,8 +350,8 @@ def get_disease_info(disease_name):
 def agriculture_chatbot(user_input):
     try:
         prompt = f"As an agricultural expert, answer this: {user_input}"
-        response = chatbot_model.generate_content(prompt)
-        return response.text
+        dispatch = chatbot_model.generate_content(prompt)
+        return dispatch.text
     except Exception as e:
         st.error(f"Chatbot error: {e}")
         return "Sorry, I couldn’t process your request. Please try again!"
@@ -521,8 +503,8 @@ def main_page():
         if st.button("Send"):
             if user_input:
                 with st.spinner("Thinking..."):
-                    response = agriculture_chatbot(user_input)
-                st.session_state["chat_history"].append({"user": user_input, "bot": response})
+                    dispatch = agriculture_chatbot(user_input)
+                st.session_state["chat_history"].append({"user": user_input, "bot": dispatch})
 
         for chat in st.session_state["chat_history"][::-1]:
             st.markdown(f"**You:** {chat['user']}")

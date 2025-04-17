@@ -127,26 +127,19 @@ def download_model():
     # Check if the model file exists and is valid
     if os.path.exists(model_path):
         file_size = os.path.getsize(model_path)
-        st.write(f"Existing file size: {file_size} bytes")
         if file_size < 100000:  # Check for files smaller than 100 KB (e.g., Git LFS pointers)
-            st.write("Existing file is too small, likely a Git LFS pointer. Redownloading...")
             os.remove(model_path)
         else:
             try:
                 with h5py.File(model_path, 'r') as f:
-                    st.write("Valid HDF5 file")
-                st.write(f"Model path: {model_path}")
-                st.write(f"File exists: {os.path.exists(model_path)}")
-                st.write(f"File size: {file_size} bytes")
+                    pass
                 return model_path
             except Exception as e:
-                st.write(f"Invalid HDF5 file: {e}. Redownloading...")
                 os.remove(model_path)
     
     # Download from Google Drive
     os.makedirs("trained_model", exist_ok=True)
     url = "https://drive.google.com/uc?id=1lUuIzhcCdZEDmqfSFJcdw44na2qdeQyR"
-    st.write(f"Downloading model from Google Drive to: {model_path}")
     try:
         gdown.download(url, model_path, quiet=False)
     except Exception as e:
@@ -156,12 +149,9 @@ def download_model():
     # Verify the downloaded file
     if os.path.exists(model_path):
         file_size = os.path.getsize(model_path)
-        st.write(f"Model path: {model_path}")
-        st.write(f"File exists: {os.path.exists(model_path)}")
-        st.write(f"File size: {file_size} bytes")
         try:
             with h5py.File(model_path, 'r') as f:
-                st.write("Valid HDF5 file")
+                pass
             return model_path
         except Exception as e:
             st.error(f"Downloaded file is invalid: {e}")
@@ -172,27 +162,24 @@ def download_model():
 
 @st.cache_resource
 def load_model(model_path):
-    st.write(f"Attempting to load model from: {model_path}")
     if not os.path.exists(model_path):
         st.error(f"Model file not found at: {model_path}")
         raise FileNotFoundError(f"Model file not found at: {model_path}")
     
     file_size = os.path.getsize(model_path)
-    st.write(f"File size: {file_size} bytes")
     if file_size < 100000:  # Check for files smaller than 100 KB
         st.error("File is likely a Git LFS pointer, not the actual model.")
         raise ValueError("Invalid model file: Likely a Git LFS pointer.")
     
     try:
         with h5py.File(model_path, 'r') as f:
-            st.write("Valid HDF5 file")
+            pass
     except Exception as e:
         st.error(f"Invalid HDF5 file: {e}")
         raise ValueError(f"Invalid HDF5 file: {e}")
     
     try:
         model = tf.keras.models.load_model(model_path)
-        st.write("Model loaded successfully")
         return model
     except Exception as e:
         st.error(f"Failed to load model: {e}")
@@ -200,7 +187,6 @@ def load_model(model_path):
 
 @st.cache_resource
 def load_class_indices(class_file_path):
-    st.write(f"Attempting to load class indices from: {class_file_path}")
     if not os.path.exists(class_file_path):
         st.error(f"Class indices file not found at: {class_file_path}")
         raise FileNotFoundError(f"Class indices file not found at: {class_file_path}")
@@ -208,14 +194,8 @@ def load_class_indices(class_file_path):
         return json.load(f)
 
 working_dir = os.path.dirname(os.path.abspath(__file__))
-st.write(f"Current working directory: {working_dir}")
 try:
     model_path = download_model()
-    st.write("Root directory contents:", os.listdir(working_dir))
-    if os.path.exists(f"{working_dir}/trained_model"):
-        st.write("Trained model directory contents:", os.listdir(f"{working_dir}/trained_model"))
-    else:
-        st.write("Trained model directory does not exist, created during download.")
     class_file_path = f"{working_dir}/class_indices.json"
     disease_model = load_model(model_path)
     class_indices = load_class_indices(class_file_path)
@@ -252,7 +232,6 @@ def save_to_history(user_id, image_data, prediction):
             if not auth_user:
                 st.error("No authenticated user. Session may have expired.")
                 return
-            st.write(f"Debug: Authenticated user ID: {auth_user.user.id}, Insert user_id: {user_id}")
             if auth_user.user.id != user_id:
                 st.error(f"User ID mismatch: Authenticated ID ({auth_user.user.id}) != Insert ID ({user_id})")
                 return
@@ -270,9 +249,7 @@ def save_to_history(user_id, image_data, prediction):
         except Exception as e:
             if "refresh_token" in st.session_state and ("403" in str(e) or "42501" in str(e)):
                 try:
-                    st.write("Debug: Attempting token refresh...")
                     new_session = supabase.auth.refresh_session(st.session_state["refresh_token"])
-                    st.write(f"Debug: New session user ID: {new_session.user.id}")
                     st.session_state["access_token"] = new_session.session.access_token
                     st.session_state["refresh_token"] = new_session.session.refresh_token
                     supabase.auth.set_session(new_session.session.access_token, new_session.session.refresh_token)
@@ -350,8 +327,8 @@ def get_disease_info(disease_name):
 def agriculture_chatbot(user_input):
     try:
         prompt = f"As an agricultural expert, answer this: {user_input}"
-        dispatch = chatbot_model.generate_content(prompt)
-        return dispatch.text
+        response = chatbot_model.generate_content(prompt)
+        return response.text
     except Exception as e:
         st.error(f"Chatbot error: {e}")
         return "Sorry, I couldn’t process your request. Please try again!"
@@ -421,7 +398,6 @@ def main_page():
         st.markdown("<h1 style='color: white;'>Plant Disease Classifier</h1>", unsafe_allow_html=True)
         if "user" in st.session_state and st.session_state["user"] != "guest":
             auth_user = supabase.auth.get_user()
-            st.write(f"Logged in as user_id: {auth_user.user.id if auth_user else 'Not authenticated'}")
 
         uploaded_image = st.file_uploader("Upload an image...", type=["jpg", "jpeg", "png"])
 
@@ -503,8 +479,8 @@ def main_page():
         if st.button("Send"):
             if user_input:
                 with st.spinner("Thinking..."):
-                    dispatch = agriculture_chatbot(user_input)
-                st.session_state["chat_history"].append({"user": user_input, "bot": dispatch})
+                    response = agriculture_chatbot(user_input)
+                st.session_state["chat_history"].append({"user": user_input, "bot": response})
 
         for chat in st.session_state["chat_history"][::-1]:
             st.markdown(f"**You:** {chat['user']}")
